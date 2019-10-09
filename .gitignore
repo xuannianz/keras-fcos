@@ -107,3 +107,4 @@ venv.bak/
 logs/
 snapshots/
 datasets/
+!utils/compute_overlap.cpython-36m-x86_64-linux-gnu.so
