@@ -3,7 +3,6 @@ import sys
 import layers
 import losses
 import initializers
-import keras_contrib
 
 
 class Backbone(object):
@@ -17,7 +16,6 @@ class Backbone(object):
             'PriorProbability': initializers.PriorProbability,
             'RegressBoxes': layers.RegressBoxes,
             'FilterDetections': layers.FilterDetections,
-            'GroupNormalization': keras_contrib.layers.GroupNormalization,
             'Anchors': layers.Anchors,
             'ClipBoxes': layers.ClipBoxes,
             '_focal': losses.focal(),
