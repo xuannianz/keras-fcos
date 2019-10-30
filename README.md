@@ -3,7 +3,7 @@ This is an implementation of [FCOS](https://arxiv.org/abs/1904.01355) on keras a
 and [tianzhi0549/FCOS](https://github.com/tianzhi0549/FCOS). 
 Thanks for their hard work. 
 ## Test
-1. I trained on Pascal VOC2012 trainval.txt + Pascal VOC2012 train.txt, and validated on Pascal VOC2007 val.txt. There are 14041 images for training and 2510 images for validation.
+1. I trained on Pascal VOC2012 trainval.txt + Pascal VOC2007 train.txt, and validated on Pascal VOC2007 val.txt. There are 14041 images for training and 2510 images for validation.
 2. The best evaluation results on VOC2007 test are: 
 
 | backbone | mAP |
