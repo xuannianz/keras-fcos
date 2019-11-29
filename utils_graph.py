@@ -65,17 +65,9 @@ def shift(shape, stride, anchors):
     Returns
         shifted_anchors: (fh * fw * num_anchors, 4)
     """
-    # 假设 stride=8, shape=(64, 64), 那么
-    # shift_x 为 [0.5 * 8, 1.5 * 8, 2.5 * 8, ..., 63.5 * 8]
-    # shift_y 为 [0.5 * 8, 1.5 * 8, 2.5 * 8, ..., 63.5 * 8]
-    # 其实乘以 stride 是为了映射到原图像
     shift_x = (K.arange(0, shape[1], dtype=K.floatx()) + K.constant(0.5, dtype=K.floatx())) * stride
     shift_y = (K.arange(0, shape[0], dtype=K.floatx()) + K.constant(0.5, dtype=K.floatx())) * stride
-    # meshgrid 之后, 那么
-    # shift_x 变成 [[0.5 * 8, 1.5 * 8, 2.5 * 8, ..., 63.5 * 8], ..., [0.5 * 8, 1.5 * 8, 2.5 * 8, ..., 63.5 * 8]]
-    # shift_y 变成 [[0.5 * 8, 0.5 * 8, 0.5 * 8, ..., 0.5 * 8], ..., [63.5 * 8, 63.5 * 8, 63.5 * 8, ..., 63.5 * 8]]
     shift_x, shift_y = tf.meshgrid(shift_x, shift_y)
-    # (fh * fw, ), 表示所有 grid cell 的 shift
     shift_x = K.reshape(shift_x, [-1])
     shift_y = K.reshape(shift_y, [-1])
 

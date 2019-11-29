@@ -88,7 +88,6 @@ class Evaluate(keras.callbacks.Callback):
 class RedirectModel(keras.callbacks.Callback):
     """
     Callback which wraps another callback, but executed on a different model.
-    保存 base model, 而不是 parallel_model, 事实上 parallel_model 在保存 model 时会保存, 只能保存 weights
 
     ```python
     model = keras.models.load_model('model.h5')

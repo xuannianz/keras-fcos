@@ -65,9 +65,6 @@ class Generator(keras.utils.Sequence):
             transform_generator: A generator used to randomly transform images and annotations.
             batch_size: The size of the batches to generate.
             group_method: Determines how images are grouped together (defaults to 'ratio', one of ('none', 'random', 'ratio')).
-                ratio 指的是对所有图片按 aspect_ratio 进行排序
-                random 指的是随机生成一种顺序
-                Note: group 的概念就是把图片按照 group_method 的方式排序, 然后一个 batch 作为一个 group
             shuffle_groups: If True, shuffles the groups each epoch.
             image_min_side: After resizing the minimum side of an image is equal to image_min_side.
             image_max_side: If after resizing the maximum side is larger than image_max_side, scales down further so that the max side is equal to image_max_side.
@@ -165,7 +162,6 @@ class Generator(keras.utils.Sequence):
         """
         Load annotations for all images in group.
         """
-        # load_annotations 返回的样式是  {'labels': np.array, 'annotations': np.array}
         annotations_group = [self.load_annotations(image_index) for image_index in group]
         for annotations in annotations_group:
             assert (isinstance(annotations,
@@ -186,7 +182,6 @@ class Generator(keras.utils.Sequence):
         for index, (image, annotations) in enumerate(zip(image_group, annotations_group)):
             # test x2 < x1 | y2 < y1 | x1 < 0 | y1 < 0 | x2 <= 0 | y2 <= 0 | x2 >= image.shape[1] | y2 >= image.shape[0]
             invalid_indices = np.where(
-                # np.array 之间的 or 可以使用 |
                 (annotations['bboxes'][:, 2] <= annotations['bboxes'][:, 0]) |
                 (annotations['bboxes'][:, 3] <= annotations['bboxes'][:, 1]) |
                 (annotations['bboxes'][:, 0] < 0) |
@@ -204,7 +199,6 @@ class Generator(keras.utils.Sequence):
                     image.shape,
                     annotations['bboxes'][invalid_indices, :]
                 ))
-                # keys() 有两个值, 一个是 labels, 一个是 bboxes
                 for k in annotations_group[index].keys():
                     annotations_group[index][k] = np.delete(annotations[k], invalid_indices, axis=0)
             if annotations['bboxes'].shape[0] == 0:
@@ -235,14 +229,12 @@ class Generator(keras.utils.Sequence):
             annotations['bboxes'][:, 3] = np.clip(annotations['bboxes'][:, 3], 1, image_height - 1)
             # test x2 < x1 | y2 < y1 | x1 < 0 | y1 < 0 | x2 <= 0 | y2 <= 0 | x2 >= image.shape[1] | y2 >= image.shape[0]
             small_indices = np.where(
-                # np.array 之间的 or 可以使用 |
                 (annotations['bboxes'][:, 2] - annotations['bboxes'][:, 0] < 15) |
                 (annotations['bboxes'][:, 3] - annotations['bboxes'][:, 1] < 15)
             )[0]
 
             # delete invalid indices
             if len(small_indices):
-                # keys() 有两个值, 一个是 labels, 一个是 bboxes
                 for k in annotations_group[index].keys():
                     annotations_group[index][k] = np.delete(annotations[k], small_indices, axis=0)
                 # import cv2
@@ -399,7 +391,6 @@ class Generator(keras.utils.Sequence):
         Compute inputs for the network using an image_group.
         """
         # get the max image shape
-        # 最大的 h, w, c
         max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
 
         # construct an image batch object
@@ -431,16 +422,15 @@ class Generator(keras.utils.Sequence):
         # get the max image shape
         max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
         feature_shapes = self.compute_shapes(max_shape, pyramid_levels=(3, 4, 5, 6, 7))
-        # list of np.array, 每一个元素分别表示每一个 feature map 上所有 grid cell 的中心点坐标 (cx, cy)
+        # list of np.array
         locations = self.compute_locations(feature_shapes)
         num_locations_each_layer = [location.shape[0] for location in locations]
         # (m, 2) m=sum(fh*fw)
         locations = np.concatenate(locations, axis=0)
-        # (m, 2) 表示每一个 location 位置可以预测的 box 的 l,t,r,b 的范围
+        # (m, 2)
         interest_sizes = self.compute_interest_sizes(num_locations_each_layer)
         batch_size = len(image_group)
         num_classes = self.num_classes()
-        # 第一个 1 用于存放 centerness, 第二个 1 用于标记是否是 pos location, 只有 pos location 参与 regression loss 的计算
         batch_regression = np.zeros((batch_size, locations.shape[0], 4 + 1 + 1), dtype=keras.backend.floatx())
         batch_classification = np.zeros((batch_size, locations.shape[0], num_classes + 1), dtype=keras.backend.floatx())
         batch_centerness = np.zeros((batch_size, locations.shape[0], 1 + 1), dtype=keras.backend.floatx())
@@ -462,36 +452,28 @@ class Generator(keras.utils.Sequence):
             b = bboxes[:, 3][None] - cy[:, None]
             # (m, n, 4)
             regr_targets = np.stack([l, t, r, b], axis=2)
-            # location 是否在 gt_box 里面, 即 l,t,r,b 是否都大于 0
             # (m, n)
             is_in_bbox = regr_targets.min(axis=2) > 0
-            # 限定每一层上的回归值, 是为了减少, 大小差异明显的 gt_boxes 重叠
             # (m, n)
             max_regr_target = regr_targets.max(axis=2)
             # limit the regression range for each location
             # (m, n)
             is_cared_in_level = (max_regr_target >= interest_sizes[:, 0:1]) & (max_regr_target <= interest_sizes[:, 1:2])
-            # (1, n), tile 之后变成 (m, n)
-            # 每个 location 关联的所有 gt_boxes 的 areas
             locations_to_gt_areas = np.tile(bbox_areas[None], (len(locations), 1))
             locations_to_gt_areas[~is_in_bbox] = INF
             locations_to_gt_areas[~is_cared_in_level] = INF
             # if there are still more than one objects for a location,
             # we choose the one with minimal area
-            # NOTE: 如果某个 location 上的 area 为 [INF, INF, INF, ...], 那么 location_to_min_area_ind 对应的值是 0
-            # 每个 location 关联的 gt_boxes 的最小 area
             locations_to_min_area = locations_to_gt_areas.min(axis=1)
             pos_location_indices = np.where(locations_to_min_area != INF)[0]
             if len(pos_location_indices) == 0:
                 warnings.warn('no pos locations')
-            # 每个 location 关联的最小 area 的 gt_box 的 index
             locations_to_min_area_ind = locations_to_gt_areas.argmin(axis=1)
             # (m, 4)
             regr_targets = regr_targets[range(len(locations)), locations_to_min_area_ind]
             # (m, 2)
             left_right = regr_targets[:, [0, 2]]
             top_bottom = regr_targets[:, [1, 3]]
-            # 中心程度, 当 l=r,t=b 时, 就是中心点时有最大值 1
             # (m, )
             centerness = (left_right.min(axis=-1) / left_right.max(axis=-1)) * \
                          (top_bottom.min(axis=-1) / top_bottom.max(axis=-1))
@@ -501,7 +483,6 @@ class Generator(keras.utils.Sequence):
             pos_location_labels = location_labels[pos_location_indices]
             batch_regression[batch_item_id, :, :4] = regr_targets
             batch_regression[batch_item_id, :, 4] = centerness_targets
-            # 标记 pos location, 只有 pos location 参与 regression loss 的计算
             batch_regression[batch_item_id, pos_location_indices, -1] = 1
             batch_classification[batch_item_id, pos_location_indices, pos_location_labels] = 1
             batch_classification[batch_item_id, pos_location_indices, -1] = 1

@@ -4,9 +4,9 @@ and [tianzhi0549/FCOS](https://github.com/tianzhi0549/FCOS).
 Thanks for their hard work. 
 ## Test
 1. I trained on Pascal VOC2012 trainval.txt + Pascal VOC2007 train.txt, and validated on Pascal VOC2007 val.txt. There are 14041 images for training and 2510 images for validation.
-2. The best evaluation results on VOC2007 test are: 
+2. The best evaluation results on VOC2007 test are (score_threshold=0.05): 
 
-| backbone | mAP |
+| backbone | mAP<sub>50</sub> |
 | ---- | ---- |
 | resnet50 | 0.6892 | 
 | resnet101 | 0.7352 |

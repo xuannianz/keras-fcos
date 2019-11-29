@@ -247,10 +247,6 @@ def __build_model_pyramid(model_name, model, features):
     Returns
         A tensor containing the response from the submodel on the FPN features.
     """
-    # regression_model(f) 返回的 shape 是  (b, fh * fw, 4)
-    # classification_model(f) 返回的 shape 是 (b, fh * fw, num_classes)
-    # centerness_model(f) 返回的 shape 是 (b, fh * fw )
-    # concatenate axis=1 那一维, 就是把所有 feature map 的输出整合起来
     return keras.layers.Concatenate(axis=1, name=model_name)([model(f) for f in features])
 
 
@@ -265,10 +261,6 @@ def __build_pyramid(models, features):
     Returns
         A list of tensors, one for each submodel.
     """
-    # models 中有三个 model
-    # 一个是 regression_model, 其 model_name 是 'regression'
-    # 一个是 classification_model, 其 model_name 是 'classification'
-    # 一个是 centerness_model, 其 model_name 是 'centerness'
     return [__build_model_pyramid(model_name, model, features) for model_name, model in models]
 
 

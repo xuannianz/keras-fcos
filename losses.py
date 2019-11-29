@@ -46,14 +46,11 @@ def focal(alpha=0.25, gamma=2.0):
         # compute the focal loss
         location_state = y_true[:, :, -1]
         labels = y_true[:, :, :-1]
-        # alpha 参与用于调节正负样本的平衡问题
         alpha_factor = K.ones_like(labels) * alpha
         alpha_factor = tf.where(K.equal(labels, 1), alpha_factor, 1 - alpha_factor)
-        # focal_weight 用来使置信度较高容易的样本的 loss 比原来小, 而置信度低的难度大的 loss 变化不大
         # (1 - 0.99) ** 2 = 1e-4, (1 - 0.9) ** 2 = 1e-2
         focal_weight = tf.where(K.equal(labels, 1), 1 - y_pred, y_pred)
         focal_weight = alpha_factor * focal_weight ** gamma
-        # binary_crossentropy 是  -log(p) y=1 -log(1-p) y=others, 那么论文中统一的用 -log(pt) 来表示
         cls_loss = focal_weight * K.binary_crossentropy(labels, y_pred)
 
         # compute the normalizer: the number of positive anchors
@@ -69,7 +66,6 @@ def focal(alpha=0.25, gamma=2.0):
 def iou():
     def iou_(y_true, y_pred):
         location_state = y_true[:, :, -1]
-        # 只考虑 pos location
         indices = tf.where(K.equal(location_state, 1))
         if tf.size(indices) == 0:
             return tf.constant(0.0)
@@ -78,7 +74,7 @@ def iou():
         y_regr_true = y_true[:, :4]
         y_centerness_true = y_true[:, 4]
 
-        # (num_pos, ), 因为 regr model 最后一层是 tf.exp, 所以 y_regr_pred 都是正值
+        # (num_pos, )
         pred_left = y_regr_pred[:, 0]
         pred_top = y_regr_pred[:, 1]
         pred_right = y_regr_pred[:, 2]
@@ -109,7 +105,6 @@ def iou():
 def bce():
     def bce_(y_true, y_pred):
         location_state = y_true[:, :, -1]
-        # 只考虑 pos location
         indices = tf.where(K.equal(location_state, 1))
         if tf.size(indices) == 0:
             return tf.constant(0.0)

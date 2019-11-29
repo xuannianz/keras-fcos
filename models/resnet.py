@@ -58,8 +58,6 @@ class ResNetBackbone(Backbone):
         else:
             raise ValueError('Unknown depth')
 
-        # 先检查本地是否有 ~/.keras/model/filename, 如果有, 检查其 md5
-        # 如果没有, 把 resource 下载到 ~/.keras/models 目录下, 保存为 filename
         return get_file(
             filename,
             resource,

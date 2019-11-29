@@ -45,10 +45,8 @@ def makedirs(path):
     # pass if the directory exists already, fails otherwise.
     # Meant for Python 2.7/3.n compatibility.
     try:
-        # 如果 path 已经存在, 会抛 FileExistsError
         os.makedirs(path)
     except OSError:
-        # 如果已经存在, 且不是目录, 那么再次抛出异常
         if not os.path.isdir(path):
             raise
 
@@ -58,7 +56,6 @@ def get_session():
     Construct a modified tf session.
     """
     config = tf.ConfigProto()
-    # 根据程序需要来增加 gpu 的内存
     config.gpu_options.allow_growth = True
     return tf.Session(config=config)
 
@@ -170,7 +167,6 @@ def create_callbacks(model, training_model, prediction_model, validation_generat
         callbacks.append(evaluation)
 
     # save the model
-    # --no-snapshots 的 dest 是 snapshots
     if args.snapshots:
         # ensure directory created first; otherwise h5py will error after epoch.
         makedirs(args.snapshot_path)
@@ -337,10 +333,6 @@ def parse_args(args):
     csv_parser.add_argument('--val-annotations-path',
                             help='Path to CSV file containing annotations for validation (optional).')
 
-    # 后面的逻辑是, 如果指定了 snapshot, 优先使用 snapshot.
-    # 如果没有指定 snapshot, 看是否指定了 weights, 如果指定了, 使用 weights
-    # 然后再看 imagenet_weights 属性是 True 还是 False, 如果是 True, 下载相关 backbone 的 imagenet weights
-    # 如果是 False, 什么也不做
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--snapshot', help='Resume training from a snapshot.')
     group.add_argument('--imagenet-weights',
@@ -352,7 +344,6 @@ def parse_args(args):
 
     parser.add_argument('--backbone', help='Backbone model used by retinanet.', default='resnet50', type=str)
     parser.add_argument('--batch-size', help='Size of the batches.', default=1, type=int)
-    # NOTE: nvidia-smi 和 tensorflow 中的 gpu id 可能不一致
     parser.add_argument('--gpu', help='Id of the GPU to use (as reported by nvidia-smi).')
     parser.add_argument('--num_gpus', help='Number of GPUs to use for parallel processing.', type=int, default=0)
     parser.add_argument('--multi-gpu-force', help='Extra flag needed to enable (experimental) multi-gpu support.',

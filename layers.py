@@ -70,10 +70,8 @@ class Anchors(keras.layers.Layer):
         if K.image_data_format() == 'channels_first':
             anchors = utils_graph.shift(feature_shape[2:4], self.stride, self.anchors)
         else:
-            # feature_shape[1:3] 就是 feature_map 的 h,w
             # (fh * fw * num_anchors, 4)
             anchors = utils_graph.shift(feature_shape[1:3], self.stride, self.anchors)
-        # axis=0, tile batch_size 倍
         # (b, fh * fw * num_anchors, 4)
         anchors = K.tile(K.expand_dims(anchors, axis=0), (feature_shape[0], 1, 1))
 
@@ -137,7 +135,6 @@ class Locations(keras.layers.Layer):
             shift_x = K.reshape(shift_x, (-1,))
             # (h * w, )
             shift_y = K.reshape(shift_y, (-1,))
-            # (h * w, 2), feature map 上每个 grid cell 的中心点坐标
             locations = K.stack((shift_x, shift_y), axis=1) + stride // 2
             locations_per_feature.append(locations)
         # (sum(h * w), 2)
@@ -264,7 +261,6 @@ def filter_detections(
 
     def _filter_detections(scores_, labels_):
         """
-        对某个类的 num_boxes 根据 score 来过滤
         Args:
             scores_: (num_boxes, )
             labels_: (num_boxes, )
@@ -273,7 +269,6 @@ def filter_detections(
 
         """
         # threshold based on score
-        # 大于 score_threshold 的属于某个类的 indices
         # (num_score_keeps, 1)
         indices_ = tf.where(keras.backend.greater(scores_, score_threshold))
 
@@ -294,14 +289,16 @@ def filter_detections(
             # <tf.Tensor: id=15, shape=(2, 1), dtype=float64, numpy=
             # array([[0.5],
             #        [0.7]])>
-            # (num_score_keeps, 1)[:, 0] 变成 (num_score_keeps, )
             filtered_scores = keras.backend.gather(scores_, indices_)[:, 0]
             filtered_centerness = tf.gather_nd(centerness, indices_)[:, 0]
             filtered_scores = K.sqrt(filtered_scores * filtered_centerness)
             # perform NMS
-            nms_indices = tf.image.non_max_suppression(filtered_boxes, filtered_scores, max_output_size=max_detections,
-                                                      iou_threshold=nms_threshold)
-
+            # (x1, y1, x2, y2) --> (y1, x1, y2, x2)
+            filtered_boxes_2 = tf.stack([filtered_boxes[:, 1], filtered_boxes[:, 0],
+                                         filtered_boxes[:, 3], filtered_boxes[:, 2]], axis=1)
+            nms_indices = tf.image.non_max_suppression(filtered_boxes_2, filtered_scores, max_output_size=max_detections,
+                                                       iou_threshold=nms_threshold)
+            # nms_indices = tf.Print(nms_indices, [nms_indices], '\nnms_indices', summarize=1000)
             # filter indices based on NMS
             # (num_score_nms_keeps, 1)
             indices_ = keras.backend.gather(indices_, nms_indices)
@@ -320,7 +317,6 @@ def filter_detections(
         for c in range(int(classification.shape[1])):
             # (num_boxes, )
             scores = classification[:, c]
-            # NOTE: 这里是 int64, 在 _filter_detections 中需要和 indices_ stack, indices 是 int64 的, 所以 labels 也需是 int64
             # (num_boxes, )
             labels = c * tf.ones((keras.backend.shape(scores)[0],), dtype='int64')
             all_indices.append(_filter_detections(scores, labels))
@@ -348,7 +344,6 @@ def filter_detections(
 
     # zero pad the outputs
     pad_size = keras.backend.maximum(0, max_detections - keras.backend.shape(scores)[0])
-    # UNCLEAR: 为何这里使用 -1 作为填充值呢, 而不是我们常用的 0
     boxes = tf.pad(boxes, [[0, pad_size], [0, 0]], constant_values=-1)
     scores = tf.pad(scores, [[0, pad_size]], constant_values=-1)
     labels = tf.pad(labels, [[0, pad_size]], constant_values=-1)
@@ -428,7 +423,6 @@ class FilterDetections(keras.layers.Layer):
         outputs = tf.map_fn(
             _filter_detections,
             elems=[boxes, classification, centerness],
-            # NOTE: 这里的 dtype 是对应于 _filter_detections return 的值的类型而不是 elems
             dtype=[keras.backend.floatx(), keras.backend.floatx(), 'int32'],
             parallel_iterations=self.parallel_iterations
         )

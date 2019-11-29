@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
-from fcos.generators.voc_generator import PascalVocGenerator
-from fcos.utils.transform import random_transform_generator
-from fcos.utils.image import random_visual_effect_generator
-from fcos.utils.image import preprocess_image
+from generators.voc_generator import PascalVocGenerator
+from utils.transform import random_transform_generator
+from utils.image import random_visual_effect_generator
+from utils.image import preprocess_image
 
 
 def show_annotations():
