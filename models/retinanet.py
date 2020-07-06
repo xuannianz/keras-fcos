@@ -23,34 +23,42 @@ from models import assert_training_model
 
 
 def default_shared_model(
-        pyramid_feature_size=256,
-        classification_feature_size=256,
-        name='shared_submodel'
+    pyramid_feature_size=256,
+    feature_size=256,
+    name='shared'
 ):
+    """
+    Creates a keras.model (subnet) which is to be shared with
+    the centerness branch
+    """
     options = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-    }
+                'kernel_size': 3,
+                'strides': 1,
+                'padding': 'same',
+            }
 
     inputs = keras.layers.Input(shape=(None, None, pyramid_feature_size))
 
     outputs = inputs
     for i in range(4):
         outputs = keras.layers.Conv2D(
-            filters=classification_feature_size,
-            activation='relu',
-            name='pyramid_shared_{}'.format(i),
+            filters=feature_size,
+            activation=None,
+            name='pyramid_' + name + '_{}'.format(i),
             kernel_initializer=keras.initializers.normal(mean=0.0, stddev=0.01, seed=None),
             bias_initializer='zeros',
             **options
         )(outputs)
-    return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
+        outputs = layers.GroupNormalization(groups=32, name='pyramid_gn_{}_{}'.format(name, i))(outputs)
+        outputs = keras.layers.Activation('relu', name='pyramid_relu_{}_{}'.format(name, i))(outputs)
+
+    return keras.models.Model(inputs=inputs, outputs=outputs, name=name + '_submodel')
 
 
 def default_classification_model(
         num_classes,
-        shared_model,
+        shared_model=None,
+        unshared_model=None,
         pyramid_feature_size=256,
         prior_probability=0.01,
         name='classification_submodel'
@@ -61,6 +69,7 @@ def default_classification_model(
     Args
         num_classes: Number of classes to predict a score for at each feature level.
         shared_model:
+        unshared_model:
         pyramid_feature_size: The number of filters to expect from the feature pyramid levels.
         name: The name of the submodel.
 
@@ -75,7 +84,12 @@ def default_classification_model(
 
     inputs = keras.layers.Input(shape=(None, None, pyramid_feature_size))
 
-    outputs = shared_model(inputs)
+    if shared_model is not None:
+        outputs = shared_model(inputs)
+    elif unshared_model is not None:
+        outputs = unshared_model(inputs)
+    else:
+        raise ValueError("No model has been passed to the {}".format(name))
 
     outputs = keras.layers.Conv2D(
         filters=num_classes,
@@ -132,14 +146,23 @@ def default_centerness_model(
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
 
 
-def default_regression_model(num_values=4, pyramid_feature_size=256, regression_feature_size=256,
-                             name='regression_submodel'):
+def default_regression_model(
+    num_classes=4,
+    shared_model=None,
+    unshared_model=None,
+    pyramid_feature_size=256,
+    name='regression_submodel',
+    reg_normalize=False,
+    network_stride=None
+):
     """
     Creates the default regression submodel.
 
     Args
         num_values: Number of values to regress.
         num_anchors: Number of anchors to regress for each feature level.
+        shared_model:
+        unshared_model:
         pyramid_feature_size: The number of filters to expect from the feature pyramid levels.
         regression_feature_size : The number of filters to use in the layers in the regression submodel.
         name: The name of the submodel.
@@ -147,32 +170,32 @@ def default_regression_model(num_values=4, pyramid_feature_size=256, regression_
     Returns
         A keras.models.Model that predicts regression values for each anchor.
     """
-    # All new conv layers except the final one in the
-    # RetinaNet (classification) subnets are initialized
-    # with bias b = 0 and a Gaussian weight fill with stddev = 0.01.
     options = {
-        'kernel_size': 3,
-        'strides': 1,
-        'padding': 'same',
-        'kernel_initializer': keras.initializers.normal(mean=0.0, stddev=0.01, seed=None),
-        'bias_initializer': 'zeros'
-    }
+                'kernel_size': 3,
+                'strides': 1,
+                'padding': 'same',
+                'kernel_initializer': keras.initializers.normal(mean=0.0, stddev=0.01, seed=None),
+                'bias_initializer': 'zeros'
+            }
 
     inputs = keras.layers.Input(shape=(None, None, pyramid_feature_size))
-    outputs = inputs
-    for i in range(4):
-        outputs = keras.layers.Conv2D(
-            filters=regression_feature_size,
-            activation='relu',
-            name='pyramid_regression_{}'.format(i),
-            **options
-        )(outputs)
+    if shared_model is not None:
+        outputs = shared_model(inputs)
+    elif unshared_model is not None:
+        outputs = unshared_model(inputs)
+    else:
+        raise ValueError("No model has been passed to the {}".format(name))
 
-    outputs = keras.layers.Conv2D(num_values, name='pyramid_regression', **options)(outputs)
+    outputs = keras.layers.Conv2D(num_classes, name='pyramid_regression', **options)(outputs)
     # (b, num_anchors_this_feature_map, num_values)
-    outputs = keras.layers.Reshape((-1, num_values), name='pyramid_regression_reshape')(outputs)
+    outputs = keras.layers.Reshape((-1, num_classes), name='pyramid_regression_reshape')(outputs)
+    # reg_normalize output exp(s_i, x)
+    if reg_normalize:
+        outputs = keras.layers.Activation('relu', name='pyramid_regression_relu')(outputs)
+        # outputs = layers.RegNormalize()(output)
     # added for fcos
     outputs = keras.layers.Lambda(lambda x: K.exp(x))(outputs)
+
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
 
 
@@ -215,7 +238,7 @@ def __create_pyramid_features(C3, C4, C5, feature_size=256):
     return [P3, P4, P5, P6, P7]
 
 
-def default_submodels(num_classes):
+def default_submodels(num_classes, ctr_regression):
     """
     Create a list of default submodels used for object detection.
 
@@ -223,14 +246,19 @@ def default_submodels(num_classes):
 
     Args
         num_classes: Number of classes to use.
+        ctr_regression: Bool indicating if centerness branch ought to be shared with regression subnet.
 
     Returns
         A list of tuple, where the first element is the name of the submodel and the second element is the submodel itself.
     """
-    shared_model = default_shared_model(pyramid_feature_size=256, classification_feature_size=256)
+    shared_model    = default_shared_model(pyramid_feature_size=256, feature_size=256)
+    unshared_model  = default_shared_model(pyramid_feature_size=256, feature_size=256, name="unshared")
+
     return [
-        ('regression', default_regression_model(num_values=4)),
-        ('classification', default_classification_model(num_classes=num_classes, shared_model=shared_model)),
+        ('regression', default_regression_model(num_classes=4, shared_model=shared_model, reg_normalize=reg_normalize) if ctr_regression
+        else default_regression_model(num_classes=4, unshared_model=unshared_model, reg_normalize=reg_normalize)),
+        ('classification', default_classification_model(num_classes=num_classes, unshared_model=unshared_model) if ctr_regression
+        else default_classification_model(num_classes=num_classes, shared_model=shared_model)),
         ('centerness', default_centerness_model(shared_model=shared_model))
     ]
 
@@ -296,7 +324,8 @@ def retinanet(
         num_classes,
         create_pyramid_features=__create_pyramid_features,
         submodels=None,
-        name='retinanet'
+        name='retinanet',
+        ctr_regression=False
 ):
     """
     Construct a RetinaNet model on top of a backbone.
@@ -322,7 +351,7 @@ def retinanet(
         ```
     """
     if submodels is None:
-        submodels = default_submodels(num_classes)
+        submodels = default_submodels(num_classes, ctr_regression)
 
     C3, C4, C5 = backbone_layers
 

@@ -74,7 +74,10 @@ def model_with_weights(model, weights, skip_mismatch):
     return model
 
 
-def create_models(backbone_retinanet, num_classes, weights, num_gpus=0, freeze_backbone=False, lr=1e-5, config=None):
+def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
+                                                            freeze_backbone=False,
+                                                            lr=1e-5, config=None,
+                                                            ctr_regression=False):
     """
     Creates three models (model, training_model, prediction_model).
 
@@ -85,6 +88,7 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0, freeze_b
         num_gpus: The number of GPUs to use for training.
         freeze_backbone: If True, disables learning for the backbone.
         config: Config parameters, None indicates the default configuration.
+        ctr_regression: Share centerness branch with regression subnet
 
     Returns
         model: The base model. This is also the model that is saved in snapshots.
@@ -99,11 +103,11 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0, freeze_b
     if num_gpus > 1:
         from keras.utils import multi_gpu_model
         with tf.device('/cpu:0'):
-            model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier),
+            model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier, ctr_regression=ctr_regression),
                                        weights=weights, skip_mismatch=True)
         training_model = multi_gpu_model(model, gpus=num_gpus)
     else:
-        model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier),
+        model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier, ctr_regression=ctr_regression),
                                    weights=weights, skip_mismatch=True)
         training_model = model
 
@@ -370,6 +374,8 @@ def parse_args(args):
     parser.add_argument('--compute-val-loss', help='Compute validation loss during training', dest='compute_val_loss',
                         action='store_true')
 
+    parse.add_argument('--ctr-regression', help='Share centerness branch with regression subnet instead of classification subnet',
+                        dest='ctr_regression', action='store_true')
     # Fit generator arguments
     parser.add_argument('--multiprocessing', help='Use multiprocessing in fit_generator.', action='store_true')
     parser.add_argument('--workers', help='Number of generator workers.', type=int, default=1)
@@ -436,7 +442,8 @@ def main(args=None):
             num_gpus=args.num_gpus,
             freeze_backbone=args.freeze_backbone,
             lr=args.lr,
-            config=args.config
+            config=args.config,
+            ctr_regression=args.ctr_regression,
         )
 
     # print model summary
