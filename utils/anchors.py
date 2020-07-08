@@ -425,3 +425,102 @@ def bbox_transform(anchors, gt_boxes, mean=None, std=None):
     targets = (targets - mean) / std
 
     return targets
+
+
+
+def get_sample_region(gt,
+                        num_points_per,
+                        gt_xs,
+                        gt_ys,
+                        radius=1):
+    """
+    Function to sample out the center portion the ground truth object
+
+    Args:
+        gt                  (np.array)  : ground truth annotation
+        num_points_per      (list)      : list of np.array (shape is (fh * fw, 2))
+        gt_xs               (np.array)  : 1-d array indicating the x axis of
+                                            anchor point centers
+        gt_ys               (np.array)  : 1-d array indicating the y axis of
+                                            anchor point centers
+        radius              (int)       : pixels around the center of the gt box to
+                                            to take into consideration
+
+    Returns:
+        inside_gt_bbox_mask (np.array)  : array indicating indices of anchors
+                                            centers to considered while computing
+                                            anchor point targets
+    Msc/Notes:
+        Code adapted from   : https://tinyurl.com/w76cphb
+        illustration        : https://tinyurl.com/yx6s25u6
+    """
+    # Get network strides
+    anchor_params   = AnchorParameters.default
+    strides         = anchor_params.strides
+
+    # Get total number of ground truth(s)
+    num_gts = gt.shape[0]
+
+    # Get the number of center locations for feature maps
+    # from all FPN layers
+    K = len(gt_xs)
+
+    # Stack up the gt, i.e if gt has shape (2,4), produce
+    # array that has shape (k, 2, 4). Need to keep revelant
+    # coordinates and zero out the rest
+    _gt = [gt for _ in range(K)]
+    gt  = np.stack(_gt, axis=0)
+
+    # Get center coordinates of the target bounding box
+    # and create array of zeros of shape gt
+    center_x    = (gt[..., 0] + gt[..., 2]) / 2
+    center_y    = (gt[..., 1] + gt[..., 3]) / 2
+    center_gt   = np.zeros(gt.shape)
+
+    # if no ground truths
+    if center_x[..., 0].sum() == 0:
+        return np.zeros(gt_xs.shape, dtype=np.uint8)
+
+    beg = 0
+    for level, n_p in enumerate(num_points_per):
+
+        end     = beg + n_p
+
+        # Calculate new stride w.r.t radius
+        stride  = strides[level] * radius
+
+        # Setting the radius from the center point
+        # by calculating min = center - stride and
+        # max = center + stride
+        xmin    = center_x[beg:end] - stride
+        ymin    = center_y[beg:end] - stride
+        xmax    = center_x[beg:end] + stride
+        ymax    = center_y[beg:end] + stride
+
+        # Limit sample region in gt: xmin to be greater greater than x1
+        # values, xmax to be less than x2 values and vice versa for y
+        # coordinate
+        center_gt[beg:end, :, 0] = np.where(xmin > gt[beg:end, :, 0], xmin, \
+            gt[beg:end, :, 0])
+        center_gt[beg:end, :, 1] = np.where(ymin > gt[beg:end, :, 1], ymin, \
+            gt[beg:end, :, 1])
+        center_gt[beg:end, :, 2] = np.where(xmax > gt[beg:end, :, 2], \
+            gt[beg:end, :, 2], xmax)
+        center_gt[beg:end, :, 3] = np.where(ymax > gt[beg:end, :, 3], \
+            gt[beg:end, :, 3], ymax)
+        beg = end
+
+    # Given the center locations (gt_xs and gt_xy)
+    # of the anchor points, we substact the calculated
+    # radius of interest (center_gt) yielding left,
+    # right, top and bottom
+    left    = gt_xs[:, None] - center_gt[..., 0]
+    right   = center_gt[..., 2] - gt_xs[:, None]
+    top     = gt_ys[:, None] - center_gt[..., 1]
+    bottom  = center_gt[..., 3] - gt_ys[:, None]
+
+    # Get center box ROI and Get bool output for the condition : (m, n)
+    center_bbox         = np.stack([left, top, right, bottom], axis=-1)
+    inside_gt_bbox_mask = center_bbox.min(axis=2) > 0
+
+    return inside_gt_bbox_mask

@@ -77,7 +77,8 @@ def model_with_weights(model, weights, skip_mismatch):
 def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
                                                             freeze_backbone=False,
                                                             lr=1e-5, config=None,
-                                                            ctr_regression=False):
+                                                            ctr_regression=False,
+                                                            giou=False):
     """
     Creates three models (model, training_model, prediction_model).
 
@@ -89,6 +90,7 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
         freeze_backbone: If True, disables learning for the backbone.
         config: Config parameters, None indicates the default configuration.
         ctr_regression: Share centerness branch with regression subnet
+        giou: If True, uses giou loss instead of iou loss for regression loss calculation
 
     Returns
         model: The base model. This is also the model that is saved in snapshots.
@@ -117,7 +119,7 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
     # compile model
     training_model.compile(
         loss={
-            'regression': losses.iou(),
+            'regression': losses.iou(giou=giou),
             'classification': losses.focal(),
             'centerness': losses.bce(),
         },
@@ -216,6 +218,7 @@ def create_generators(args, preprocess_image):
         'image_min_side': args.image_min_side,
         'image_max_side': args.image_max_side,
         'preprocess_image': preprocess_image,
+        'center_sampler'    : args.center_sampler
     }
 
     # create random transform generator for augmenting training data
@@ -373,9 +376,12 @@ def parse_args(args):
                         action='store_true')
     parser.add_argument('--compute-val-loss', help='Compute validation loss during training', dest='compute_val_loss',
                         action='store_true')
-
     parse.add_argument('--ctr-regression', help='Share centerness branch with regression subnet instead of classification subnet',
                         dest='ctr_regression', action='store_true')
+    parse.add_argument('--giou', help='Uses giou loss instead of iou loss for regression loss calculation',
+                        dest='giou', action='store_true')
+    parse.add_argument('--center-sampler', help='If True, target anchor points only within a defined region from the center of an object is considered',
+                        dest='center_sampler', action='store_true')
     # Fit generator arguments
     parser.add_argument('--multiprocessing', help='Use multiprocessing in fit_generator.', action='store_true')
     parser.add_argument('--workers', help='Number of generator workers.', type=int, default=1)
@@ -421,7 +427,7 @@ def main(args=None):
         # compile model
         training_model.compile(
             loss={
-                'regression': losses.iou(),
+                'regression': losses.iou(giou=args.giou),
                 'classification': losses.focal(),
                 'centerness': losses.bce(),
             },
@@ -444,6 +450,7 @@ def main(args=None):
             lr=args.lr,
             config=args.config,
             ctr_regression=args.ctr_regression,
+            giou=args.giou
         )
 
     # print model summary

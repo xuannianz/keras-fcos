@@ -63,7 +63,7 @@ def focal(alpha=0.25, gamma=2.0):
     return _focal
 
 
-def iou():
+def iou(giou=False):
     def iou_(y_true, y_pred):
         location_state = y_true[:, :, -1]
         indices = tf.where(K.equal(location_state, 1))
@@ -88,15 +88,26 @@ def iou():
 
         target_area = (target_left + target_right) * (target_top + target_bottom)
         pred_area = (pred_left + pred_right) * (pred_top + pred_bottom)
+
+        # Calculating the intersection and the union between predicted
+        # and true bounding boxes
         w_intersect = tf.minimum(pred_left, target_left) + tf.minimum(pred_right, target_right)
         h_intersect = tf.minimum(pred_bottom, target_bottom) + tf.minimum(pred_top, target_top)
-
         area_intersect = w_intersect * h_intersect
         area_union = target_area + pred_area - area_intersect
+        ious = (area_intersect + 1.0) / (area_union + 1.0)
+
+        # Calculate the coordinates of the smallest enclosing box for GIoU calculation
+        if giou:
+            g_w_intersect   = tf.maximum(pred_left, target_left) + tf.maximum(pred_right, target_right)
+            g_h_intersect   = tf.maximum(pred_bottom, target_bottom) + tf.maximum(pred_top, target_top)
+            ac_uion         = g_w_intersect * g_h_intersect + 1e-7
+            gious           = ious - (ac_uion - area_union) / ac_uion
 
         # (num_pos, )
-        losses = -tf.log((area_intersect + 1.0) / (area_union + 1.0))
+        losses = (1 - gious) if giou else -tf.log(ious)
         losses = tf.reduce_sum(losses * y_centerness_true) / (tf.reduce_sum(y_centerness_true) + 1e-8)
+
         return losses
 
     return iou_

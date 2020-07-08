@@ -25,6 +25,7 @@ from utils.anchors import (
     guess_shapes,
     compute_locations,
     compute_interest_sizes,
+    get_sample_region
 )
 from utils.config import parse_anchor_parameters
 from utils.image import (
@@ -56,7 +57,9 @@ class Generator(keras.utils.Sequence):
             compute_locations=compute_locations,
             compute_interest_sizes=compute_interest_sizes,
             preprocess_image=preprocess_image,
-            config=None
+            config=None,
+            center_sampler=False,
+            center_sampler_radius=1.5
     ):
         """
         Initialize Generator object.
@@ -91,6 +94,8 @@ class Generator(keras.utils.Sequence):
         self.config = config
         self.groups = None
         self.current_index = 0
+        self.center_sampler = center_sampler
+        self.center_sampler_radius = center_sampler_radius
 
         # Define groups
         self.group_images()
@@ -452,8 +457,18 @@ class Generator(keras.utils.Sequence):
             b = bboxes[:, 3][None] - cy[:, None]
             # (m, n, 4)
             regr_targets = np.stack([l, t, r, b], axis=2)
-            # (m, n)
-            is_in_bbox = regr_targets.min(axis=2) > 0
+
+            if self.center_sampler:
+                # CENTER SAMPLER MODULE
+                is_in_bbox = get_sample_region(gt=bboxes,
+                                               num_points_per=num_locations_each_layer,
+                                               gt_xs=cx,
+                                               gt_ys=cy,
+                                               radius=self.center_sampler_radius)
+            else:
+                # (m, n)
+                is_in_bbox = regr_targets.min(axis=2) > 0
+
             # (m, n)
             max_regr_target = regr_targets.max(axis=2)
             # limit the regression range for each location

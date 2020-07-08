@@ -18,6 +18,7 @@ class Backbone(object):
             'FilterDetections': layers.FilterDetections,
             'Anchors': layers.Anchors,
             'ClipBoxes': layers.ClipBoxes,
+            'GroupNormalization' : layers.GroupNormalization,
             '_focal': losses.focal(),
             'bce_': losses.bce(),
             'iou_': losses.iou(),

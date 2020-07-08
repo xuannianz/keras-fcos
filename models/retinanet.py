@@ -189,11 +189,12 @@ def default_regression_model(
     outputs = keras.layers.Conv2D(num_classes, name='pyramid_regression', **options)(outputs)
     # (b, num_anchors_this_feature_map, num_values)
     outputs = keras.layers.Reshape((-1, num_classes), name='pyramid_regression_reshape')(outputs)
-    # reg_normalize output exp(s_i, x)
+    # If reg_normalize, apply 'relu' on regression predictions and normalize
+    # regression targets
     if reg_normalize:
         outputs = keras.layers.Activation('relu', name='pyramid_regression_relu')(outputs)
-        # outputs = layers.RegNormalize()(output)
-    # added for fcos
+    # Added for fcos to match small regression prediction values to
+    # large regression target values.
     outputs = keras.layers.Lambda(lambda x: K.exp(x))(outputs)
 
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
