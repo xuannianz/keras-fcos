@@ -16,6 +16,7 @@ limitations under the License.
 
 from utils.compute_overlap import compute_overlap
 from utils.visualization import draw_detections, draw_annotations
+import tensorflow as tf
 
 import keras
 import numpy as np
@@ -259,7 +260,7 @@ if __name__ == '__main__':
     from utils.image import preprocess_image
     import models
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    #os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     common_args = {
         'batch_size': 1,
         'image_min_side': 800,
@@ -282,6 +283,13 @@ if __name__ == '__main__':
         skip_difficult=True,
         **common_args
     )
+    # for utilizing GPU in evaluation #only single GPU
+    gpu_id =  0 # GPU ID as indicated by nvidia-smi
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    tf.keras.backend.set_session(tf.Session(config=config))
+    
     model_path = 'snapshots/2019-08-25/resnet101_pascal_07_0.7352.h5'
     # load retinanet model
     import keras.backend as K
