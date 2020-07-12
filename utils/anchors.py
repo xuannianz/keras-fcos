@@ -201,7 +201,7 @@ def guess_shapes(image_shape, pyramid_levels=(3, 4, 5, 6, 7)):
     return feature_shapes
 
 
-def compute_locations_per_level(h, w, stride):
+def compute_locations_per_level(h, w, stride, reg_normalize=False)):
     # [0, 8, 16]
     shifts_x = np.arange(0, w * stride, step=stride, dtype=np.float32)
     # [0, 8, 16, 24]
@@ -212,15 +212,22 @@ def compute_locations_per_level(h, w, stride):
     # (h * w, )
     shift_y = shift_y.reshape(-1)
     locations = np.stack((shift_x, shift_y), axis=1) + stride // 2
-    return locations
+
+    # If regression outputs to be normalized, return array with
+    # stride value for given pyramid level
+    if reg_normalize:
+        normalizer = np.ones(shift_x.shape)*stride
+
+    return locations, normalizer
 
 
-def compute_locations(feature_shapes, anchor_params=None):
+def compute_locations(feature_shapes, anchor_params=None, reg_normalize=False):
     """
 
     Args:
         feature_shapes: list of (h, w)
         anchor_params: instance of AnchorParameters
+        reg_normalize: normalizes the outputs of the regression subnets
 
     Returns:
         locations: list of np.array (shape is (fh * fw, 2))
@@ -230,13 +237,21 @@ def compute_locations(feature_shapes, anchor_params=None):
         anchor_params = AnchorParameters.default
     fpn_strides = anchor_params.strides
     locations = []
+    normalizers = []
+
     for level, (feature_shape, fpn_stride) in enumerate(zip(feature_shapes, fpn_strides)):
         h, w = feature_shape
-        locations_per_level = compute_locations_per_level(
-            h, w, fpn_stride
+        locations_per_level, normalizer = compute_locations_per_level(
+            h, w, fpn_stride, reg_normalize
         )
         locations.append(locations_per_level)
-    return locations
+        normalizers.append(normalizer)
+
+    if reg_normalize:
+        return locations, normalizers
+    else:
+        del normalizers
+        return locations
 
 
 def compute_interest_sizes(num_locations_each_level, anchor_param=None):

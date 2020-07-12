@@ -38,7 +38,7 @@ model = models.load_model(model_path, backbone_name='resnet101')
 
 # if the model is not converted to an inference model, use the line below
 # see: https://github.com/fizyr/keras-retinanet#converting-a-training-model-to-inference-model
-model = models.convert_model(model)
+model = models.convert_model(model, reg_normalize=False)
 
 # load label to names mapping for visualization purposes
 voc_classes = {

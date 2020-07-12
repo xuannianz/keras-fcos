@@ -239,7 +239,7 @@ def __create_pyramid_features(C3, C4, C5, feature_size=256):
     return [P3, P4, P5, P6, P7]
 
 
-def default_submodels(num_classes, ctr_regression):
+def default_submodels(num_classes, ctr_regression, reg_normalize):
     """
     Create a list of default submodels used for object detection.
 
@@ -293,14 +293,14 @@ def __build_pyramid(models, features):
     return [__build_model_pyramid(model_name, model, features) for model_name, model in models]
 
 
-def __build_locations(anchor_params, features):
+def __build_locations(anchor_params, features, reg_normalize=False):
     """
     Builds anchors for the shape of the features from FPN.
 
     Args
         anchor_params: Parameters that determine how anchors are generated.
         features: The FPN features.
-
+        reg_normalize: normalizes the outputs of the regression subnets
     Returns
         A tensor containing the anchors for the FPN features.
 
@@ -309,14 +309,19 @@ def __build_locations(anchor_params, features):
         (batch_size, total_locations, 2)
         ```
     """
-    locations = layers.Locations(
+    normalizer = None
+    loc_inst = layers.Locations(
             # (8, 16, 32, 64, 128)
             strides=anchor_params.strides,
-            name='locations'
-    )(features)  # [P3, P4, P5, P6, P7]
+            name='locations',
+            reg_normalize=reg_normalize
+    )
+    locations = loc_inst(features)  # [P3, P4, P5, P6, P7]
+    if reg_normalize:
+        normalizer = loc_inst.normalizer
 
     # (batch_size, total_locations, 2)
-    return locations
+    return locations, normalizer
 
 
 def retinanet(
@@ -326,7 +331,8 @@ def retinanet(
         create_pyramid_features=__create_pyramid_features,
         submodels=None,
         name='retinanet',
-        ctr_regression=False
+        ctr_regression=False,
+        reg_normalize=False
 ):
     """
     Construct a RetinaNet model on top of a backbone.
@@ -340,6 +346,8 @@ def retinanet(
         create_pyramid_features : Functor for creating pyramid features given the features C3, C4, C5 from the backbone.
         submodels: Submodels to run on each feature map (default is regression and classification submodels).
         name: Name of the model.
+        ctr_regression: share centerness branch with regression subnet
+        reg_normalize: normalizes the outputs of the regression subnets
 
     Returns
         A keras.models.Model which takes an image as input and outputs generated anchors and the result from each submodel on every pyramid level.
@@ -352,7 +360,7 @@ def retinanet(
         ```
     """
     if submodels is None:
-        submodels = default_submodels(num_classes, ctr_regression)
+        submodels = default_submodels(num_classes, ctr_regression, reg_normalize)
 
     C3, C4, C5 = backbone_layers
 
@@ -373,6 +381,7 @@ def retinanet_bbox(
         class_specific_filter=True,
         name='retinanet-bbox',
         anchor_params=None,
+        reg_normalize=False,
         **kwargs
 ):
     """
@@ -387,6 +396,7 @@ def retinanet_bbox(
         class_specific_filter: Whether to use class specific filtering or filter for the best scoring class only.
         name: Name of the model.
         anchor_params: Struct containing anchor parameters. If None, default values are used.
+        reg_normalize: normalizes the outputs of the regression subnets
         *kwargs: Additional kwargs to pass to the minimal retinanet model.
 
     Returns
@@ -418,10 +428,10 @@ def retinanet_bbox(
     # (b, m, 1)
     centerness = model.outputs[2]
     # (b, m, 2)
-    locations = __build_locations(anchor_params, features)
+    locations, normalizer = __build_locations(anchor_params, features, reg_normalize=reg_normalize)
     # return keras.models.Model(inputs=model.inputs, outputs=locations, name=name)
     # apply predicted regression to anchors
-    boxes = layers.RegressBoxes(name='boxes')([locations, regression])
+    boxes = layers.RegressBoxes(normalizer=normalizer, name='boxes')([locations, regression])
     boxes = layers.ClipBoxes(name='clipped_boxes')([model.inputs[0], boxes])
 
     # filter detections (apply NMS / score threshold / select top-k)

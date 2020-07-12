@@ -60,6 +60,7 @@ class Generator(keras.utils.Sequence):
             config=None,
             center_sampler=False,
             center_sampler_radius=1.5
+            reg_normalize=False
     ):
         """
         Initialize Generator object.
@@ -96,6 +97,7 @@ class Generator(keras.utils.Sequence):
         self.current_index = 0
         self.center_sampler = center_sampler
         self.center_sampler_radius = center_sampler_radius
+        self.reg_normalize = reg_normalize
 
         # Define groups
         self.group_images()
@@ -427,8 +429,15 @@ class Generator(keras.utils.Sequence):
         # get the max image shape
         max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
         feature_shapes = self.compute_shapes(max_shape, pyramid_levels=(3, 4, 5, 6, 7))
-        # list of np.array
-        locations = self.compute_locations(feature_shapes)
+
+        # list of np.arrays containing the center co-ordinates (w.r.t input images) for each
+        # feature map output from the FPN
+        if self.reg_normalize:
+            locations, normalizers = self.compute_locations(feature_shapes, reg_normalize=True)
+            normalizers = np.concatenate(normalizers, axis=0)
+        else:
+            locations = self.compute_locations(feature_shapes)
+
         num_locations_each_layer = [location.shape[0] for location in locations]
         # (m, 2) m=sum(fh*fw)
         locations = np.concatenate(locations, axis=0)
@@ -496,6 +505,11 @@ class Generator(keras.utils.Sequence):
             # (m, )
             location_labels = labels[locations_to_min_area_ind]
             pos_location_labels = location_labels[pos_location_indices]
+
+            if self.reg_normalize:
+                _normalizers = np.stack([normalizers]*regr_targets.shape[-1], axis=1)
+                regr_targets = regr_targets / _normalizers
+
             batch_regression[batch_item_id, :, :4] = regr_targets
             batch_regression[batch_item_id, :, 4] = centerness_targets
             batch_regression[batch_item_id, pos_location_indices, -1] = 1

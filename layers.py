@@ -117,6 +117,7 @@ class Locations(keras.layers.Layer):
             strides: The strides mapping to the feature maps.
         """
         self.strides = strides
+        self.reg_normalize = reg_normalize
 
         super(Locations, self).__init__(*args, **kwargs)
 
@@ -124,6 +125,7 @@ class Locations(keras.layers.Layer):
         features = inputs
         feature_shapes = [K.shape(feature)[1:3] for feature in features]
         locations_per_feature = []
+        normalization_per_feature = []
         for feature_shape, stride in zip(feature_shapes, self.strides):
             h = feature_shape[0]
             w = feature_shape[1]
@@ -140,9 +142,16 @@ class Locations(keras.layers.Layer):
             # (h * w, )
             shift_y = K.reshape(shift_y, (-1,))
             locations = K.stack((shift_x, shift_y), axis=1) + stride // 2
+            # Set stride value for each feature map
+            if self.reg_normalize:
+                normalizer = K.ones(K.shape(shift_x)) * stride
+                normalization_per_feature.append(normalizer)
+
             locations_per_feature.append(locations)
         # (sum(h * w), 2)
         locations = K.concatenate(locations_per_feature, axis=0)
+        self.normalizer = K.concatenate(normalization_per_feature, axis=0) if self.reg_normalize else None
+
         # (batch, sum(h * w), 2)
         locations = K.tile(K.expand_dims(locations, axis=0), (K.shape(inputs[0])[0], 1, 1))
         return locations
@@ -189,10 +198,17 @@ class RegressBoxes(keras.layers.Layer):
         Initializer for the RegressBoxes layer.
 
         """
+        self.normalizer = normalizer
+
         super(RegressBoxes, self).__init__(*args, **kwargs)
 
     def call(self, inputs, **kwargs):
         locations, regression = inputs
+
+        if self.normalizer is not None:
+            reg_normalize = K.stack([self.normalizer]*4 ,axis=-1)
+            regression *= reg_normalize
+
         x1 = locations[:, :, 0] - regression[:, :, 0]
         y1 = locations[:, :, 1] - regression[:, :, 1]
         x2 = locations[:, :, 0] + regression[:, :, 2]

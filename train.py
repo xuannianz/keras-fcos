@@ -78,6 +78,7 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
                                                             freeze_backbone=False,
                                                             lr=1e-5, config=None,
                                                             ctr_regression=False,
+                                                            reg_normalize=False,
                                                             giou=False):
     """
     Creates three models (model, training_model, prediction_model).
@@ -90,12 +91,21 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
         freeze_backbone: If True, disables learning for the backbone.
         config: Config parameters, None indicates the default configuration.
         ctr_regression: Share centerness branch with regression subnet
+        reg_normalize: If true, regression subnets outputs are normalized with strides
         giou: If True, uses giou loss instead of iou loss for regression loss calculation
 
     Returns
         model: The base model. This is also the model that is saved in snapshots.
         training_model: The training model. If num_gpus=0, this is identical to model.
         prediction_model: The model wrapped with utility functions to perform object detection (applies regression values and performs NMS).
+
+    Notes:
+        When reg_normalize is applied,
+        - During training the 'relu' activation is applied on to the
+        outputs from the regression heads (instead of exp) and the regression targests are normalized
+        by the strides of the network at layers P3-P7 (related functions found in generators/generator.py)
+        - During validation, the outputs of the regression heads are multiplied by the stride of the
+        network at layers P3-P7
     """
 
     modifier = freeze_model if freeze_backbone else None
@@ -105,16 +115,20 @@ def create_models(backbone_retinanet, num_classes, weights, num_gpus=0,
     if num_gpus > 1:
         from keras.utils import multi_gpu_model
         with tf.device('/cpu:0'):
-            model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier, ctr_regression=ctr_regression),
+            model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier,
+                                                                       ctr_regression=ctr_regression,
+                                                                       reg_normalize=reg_normalize),
                                        weights=weights, skip_mismatch=True)
         training_model = multi_gpu_model(model, gpus=num_gpus)
     else:
-        model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier, ctr_regression=ctr_regression),
+        model = model_with_weights(backbone_retinanet(num_classes, modifier=modifier,
+                                                                   ctr_regression=ctr_regression,
+                                                                   reg_normalize=reg_normalize),
                                    weights=weights, skip_mismatch=True)
         training_model = model
 
     # make prediction model
-    prediction_model = retinanet_bbox(model=model)
+    prediction_model = retinanet_bbox(model=model, reg_normalize=args.reg_normalize)
 
     # compile model
     training_model.compile(
@@ -218,7 +232,8 @@ def create_generators(args, preprocess_image):
         'image_min_side': args.image_min_side,
         'image_max_side': args.image_max_side,
         'preprocess_image': preprocess_image,
-        'center_sampler'    : args.center_sampler
+        'center_sampler': args.center_sampler,
+        'reg_normalize': args.reg_normalize
     }
 
     # create random transform generator for augmenting training data
@@ -382,6 +397,9 @@ def parse_args(args):
                         dest='giou', action='store_true')
     parse.add_argument('--center-sampler', help='If True, target anchor points only within a defined region from the center of an object is considered',
                         dest='center_sampler', action='store_true')
+    parse.add_argument('--reg-normalize', help='If True, the outputs of the regression heads will be normalized by the stides of the network',
+                        dest='reg_normalize', action='store_true')
+
     # Fit generator arguments
     parser.add_argument('--multiprocessing', help='Use multiprocessing in fit_generator.', action='store_true')
     parser.add_argument('--workers', help='Number of generator workers.', type=int, default=1)
@@ -423,7 +441,7 @@ def main(args=None):
         anchor_params = None
         if args.config and 'anchor_parameters' in args.config:
             anchor_params = parse_anchor_parameters(args.config)
-        prediction_model = retinanet_bbox(model=model, anchor_params=anchor_params)
+        prediction_model = retinanet_bbox(model=model, anchor_params=anchor_params, reg_normalize=args.reg_normalize)
         # compile model
         training_model.compile(
             loss={
@@ -450,6 +468,7 @@ def main(args=None):
             lr=args.lr,
             config=args.config,
             ctr_regression=args.ctr_regression,
+            reg_normalize=args.reg_normalize,
             giou=args.giou
         )
 
